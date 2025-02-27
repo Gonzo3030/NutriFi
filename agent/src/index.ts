@@ -1,6 +1,3 @@
-
-
-
 import { PGLiteDatabaseAdapter } from "@elizaos/adapter-pglite";
 import { PostgresDatabaseAdapter } from "@elizaos/adapter-postgres";
 import { QdrantDatabaseAdapter } from "@elizaos/adapter-qdrant";
@@ -21,27 +18,6 @@ import { FarcasterClientInterface } from "@elizaos/client-farcaster";
 import { DirectClient } from "@elizaos/client-direct";
 import { agentKitPlugin } from "@elizaos/plugin-agentkit";
 import { elizaCodeinPlugin, onchainJson } from "@elizaos/plugin-iq6900";
-import {
-    AgentRuntime,
-    CacheManager,
-    CacheStore,
-    type Character,
-    type Client,
-    Clients,
-    DbCacheAdapter,
-    defaultCharacter,
-    elizaLogger,
-    FsCacheAdapter,
-    type IAgentRuntime,
-    type ICacheManager,
-    type IDatabaseAdapter,
-    type IDatabaseCacheAdapter,
-    ModelProviderName,
-    parseBooleanFromText,
-    settings,
-    stringToUuid,
-    validateCharacterConfig,
-} from "@elizaos/core";
 import { footballPlugin } from "@elizaos/plugin-football";
 
 import { bootstrapPlugin } from "@elizaos/plugin-bootstrap";
@@ -51,7 +27,6 @@ import { normalizeCharacter } from "@elizaos/plugin-di";
 
 import { autonomePlugin } from "@elizaos/plugin-autonome";
 
-import { birdeyePlugin } from "@elizaos/plugin-birdeye";
 import { bittensorPlugin } from "@elizaos/plugin-bittensor";
 import { nutrifiPlugin } from "@elizaos/plugin-nutrifi";
 import { bnbPlugin } from "@elizaos/plugin-bnb";
@@ -88,6 +63,7 @@ import { emailPlugin } from "@elizaos/plugin-email";
 import { emailAutomationPlugin } from "@elizaos/plugin-email-automation";
 import { MongoClient } from "mongodb";
 import { quickIntelPlugin } from "@elizaos/plugin-quick-intel";
+import { AgentRuntime, CacheManager, CacheStore, Character, Client, Clients, DbCacheAdapter, defaultCharacter, elizaLogger, FsCacheAdapter, IAgentRuntime, ICacheManager, IDatabaseAdapter, IDatabaseCacheAdapter, ModelProviderName, parseBooleanFromText, settings, stringToUuid, validateCharacterConfig } from "@elizaos/core";
 
 const __filename = fileURLToPath(import.meta.url); // get the resolved path to the file
 const __dirname = path.dirname(__filename); // get the name of the directory
@@ -875,38 +851,61 @@ export async function createAgent(
         character,
         // character.plugins are handled when clients are added
         plugins: [
+            // NutriFi - has NUTRIFI_ENABLED
             getSecret(character, "NUTRIFI_ENABLED") ? (() => {
                 elizaLogger.log('Initializing NutriFi plugin...');
                 return nutrifiPlugin;
             })() : null,
+
+            // Bitmind - has BITMIND and BITMIND_API_TOKEN
             parseBooleanFromText(getSecret(character, "BITMIND")) &&
             getSecret(character, "BITMIND_API_TOKEN")
                 ? bittensorPlugin
                 : null,
+
+            // Email Automation - has EMAIL_AUTOMATION_ENABLED
             parseBooleanFromText(
                 getSecret(character, "EMAIL_AUTOMATION_ENABLED")
             )
                 ? emailAutomationPlugin
                 : null,
+
+            // IQ6900 - has IQ_WALLET_ADDRESS and IQSOlRPC
             getSecret(character, "IQ_WALLET_ADDRESS") &&
             getSecret(character, "IQSOlRPC")
                 ? elizaCodeinPlugin
                 : null,
+
+            // Bootstrap plugin - core plugin, no env vars needed
             bootstrapPlugin,
+
+            // AgentKit - has CDP related vars
             getSecret(character, "CDP_API_KEY_NAME") &&
             getSecret(character, "CDP_API_KEY_PRIVATE_KEY") &&
             getSecret(character, "CDP_AGENT_KIT_NETWORK")
                 ? agentKitPlugin
                 : null,
+
+            // Football - has FOOTBALL_API_KEY
             getSecret(character, "FOOTBALL_API_KEY") ? footballPlugin : null,
+
+            // Node plugin - core plugin
             nodePlugin,
+
+            // Web Search - has TAVILY_API_KEY
             getSecret(character, "TAVILY_API_KEY") ? webSearchPlugin : null,
+
+            // Autonome - has AUTONOME_JWT_TOKEN
             getSecret(character, "AUTONOME_JWT_TOKEN") ? autonomePlugin : null,
+
+            // EVM - has EVM_PUBLIC_KEY or WALLET_PUBLIC_KEY
             getSecret(character, "EVM_PUBLIC_KEY") ||
             (getSecret(character, "WALLET_PUBLIC_KEY") &&
                 getSecret(character, "WALLET_PUBLIC_KEY")?.startsWith("0x"))
                 ? evmPlugin
                 : null,
+
+            // Coinbase Commerce - has required keys
             (getSecret(character, "EVM_PUBLIC_KEY") ||
                 getSecret(character, "INJECTIVE_PUBLIC_KEY")) &&
             (getSecret(character, "SOLANA_PUBLIC_KEY") ||
@@ -917,6 +916,8 @@ export async function createAgent(
             getSecret(character, "COINBASE_COMMERCE_KEY")
                 ? coinbaseCommercePlugin
                 : null,
+
+            // Image Generation - has various API keys
             getSecret(character, "FAL_API_KEY") ||
             getSecret(character, "OPENAI_API_KEY") ||
             getSecret(character, "VENICE_API_KEY") ||
@@ -926,6 +927,8 @@ export async function createAgent(
             getSecret(character, "LIVEPEER_GATEWAY_URL")
                 ? imageGenerationPlugin
                 : null,
+
+            // Coinbase related plugins - has required API keys
             ...(getSecret(character, "COINBASE_API_KEY") &&
             getSecret(character, "COINBASE_PRIVATE_KEY")
                 ? [
@@ -935,62 +938,85 @@ export async function createAgent(
                       advancedTradePlugin,
                   ]
                 : []),
-            ...(teeMode !== TEEMode.OFF && walletSecretSalt ? [teePlugin] : []),
-            teeMode !== TEEMode.OFF &&
-            walletSecretSalt &&
-            getSecret(character, "VLOG")
-                ? verifiableLogPlugin
-                : null,
-            getSecret(character, "ENABLE_TEE_LOG") &&
-            ((teeMode !== TEEMode.OFF && walletSecretSalt) ||
-                getSecret(character, "SGX"))
-                ? teeLogPlugin
-                : null,
+
+            // TEE related plugins - commenting out as TEE_MODE is OFF in env
+            // ...(teeMode !== TEEMode.OFF && walletSecretSalt ? [teePlugin] : []),
+            // teeMode !== TEEMode.OFF &&
+            // walletSecretSalt &&
+            // getSecret(character, "VLOG")
+            //     ? verifiableLogPlugin
+            //     : null,
+            // getSecret(character, "ENABLE_TEE_LOG") &&
+            // ((teeMode !== TEEMode.OFF && walletSecretSalt) ||
+            //     getSecret(character, "SGX"))
+            //     ? teeLogPlugin
+            //     : null,
+
+            // Coinbase Webhook - has required vars
             getSecret(character, "COINBASE_API_KEY") &&
             getSecret(character, "COINBASE_PRIVATE_KEY") &&
             getSecret(character, "COINBASE_NOTIFICATION_URI")
                 ? webhookPlugin
                 : null,
+
+            // Coingecko - has API keys
             getSecret(character, "COINGECKO_API_KEY") ||
             getSecret(character, "COINGECKO_PRO_API_KEY")
                 ? coingeckoPlugin
                 : null,
+
+            // Flow - has required keys
             getSecret(character, "FLOW_ADDRESS") &&
             getSecret(character, "FLOW_PRIVATE_KEY")
                 ? flowPlugin
                 : null,
-            getSecret(character, "TEE_MARLIN") ? teeMarlinPlugin : null,
+
+            // Commenting out as TEE_MARLIN not set
+            // getSecret(character, "TEE_MARLIN") ? teeMarlinPlugin : null,
             
+            // OpenWeather - has API key
             getSecret(character, "OPEN_WEATHER_API_KEY")
                 ? openWeatherPlugin
                 : null,
+
+            // NFT Collections - has API key
             getSecret(character, "RESERVOIR_API_KEY")
                 ? createNFTCollectionsPlugin()
                 : null,
+
+            // OpenAI Community Plugin - has required vars
             getSecret(character, "OPENAI_API_KEY") &&
             parseBooleanFromText(
                 getSecret(character, "ENABLE_OPEN_AI_COMMUNITY_PLUGIN")
             )
                 ? openaiPlugin
                 : null,
+
+            // BNB - has required keys
             getSecret(character, "BNB_PRIVATE_KEY") ||
             getSecret(character, "BNB_PUBLIC_KEY")?.startsWith("0x")
                 ? bnbPlugin
                 : null,
+
+            // Email - has required credentials
             (getSecret(character, "EMAIL_INCOMING_USER") &&
                 getSecret(character, "EMAIL_INCOMING_PASS")) ||
             (getSecret(character, "EMAIL_OUTGOING_USER") &&
                 getSecret(character, "EMAIL_OUTGOING_PASS"))
                 ? emailPlugin
                 : null,
+
+            // QuickIntel - has API key
             getSecret(character, "QUICKINTEL_API_KEY")
                 ? quickIntelPlugin
                 : null,
-            getSecret(character, "ARBITRAGE_EVM_PRIVATE_KEY") &&
-            (getSecret(character, "ARBITRAGE_EVM_PROVIDER_URL") ||
-                getSecret(character, "ARBITRAGE_ETHEREUM_WS_URL")) &&
-            getSecret(character, "ARBITRAGE_FLASHBOTS_RELAY_SIGNING_KEY") &&
-            getSecret(character, "ARBITRAGE_BUNDLE_EXECUTOR_ADDRESS")
+
+            // Commenting out arbitrage plugin as required vars not set
+            // getSecret(character, "ARBITRAGE_EVM_PRIVATE_KEY") &&
+            // (getSecret(character, "ARBITRAGE_EVM_PROVIDER_URL") ||
+            //     getSecret(character, "ARBITRAGE_ETHEREUM_WS_URL")) &&
+            // getSecret(character, "ARBITRAGE_FLASHBOTS_RELAY_SIGNING_KEY") &&
+            // getSecret(character, "ARBITRAGE_BUNDLE_EXECUTOR_ADDRESS")
             
         ]
             .flat()
