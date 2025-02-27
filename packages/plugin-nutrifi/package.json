@@ -22,7 +22,8 @@
 		"@elizaos/core": "workspace:*",
 		"tsup": "8.3.5", 
 		"@elizaos/adapter-mongodb": "latest",
-    "mongodb": "^5.0.0"
+		"axios": "^1.6.7",
+		"mongodb": "^5.0.0"
 	},
 	"scripts": {
 		"build": "tsup --format esm --dts",

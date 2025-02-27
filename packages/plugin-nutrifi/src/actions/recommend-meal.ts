@@ -11,6 +11,11 @@ import {
     ModelClass,
     elizaLogger
 } from "@elizaos/core";
+import { UberEatsService } from '../services/uber-eats';
+
+declare global {
+    var uberEatsService: UberEatsService;
+}
 
 const USER_PREFS_TABLE = "user_preferences";
 
@@ -19,6 +24,9 @@ const recommendMealTemplate = `# Task: Recommend a meal for the user based on th
 About the user:
 {{userPreferences}}
 
+Available Restaurants:
+{{restaurants}}
+
 Recent Messages:
 {{recentMessages}}
 
@@ -26,10 +34,10 @@ Recent Messages:
 - Aligns with their fitness goals
 - Respects dietary restrictions
 - Considers their allergies
-- Is available at nearby restaurants or can be prepared at home
+- Is available at nearby restaurants (use the provided restaurant data) or can be prepared at home
 - Includes nutritional information and benefits
 
-The response should be clear, informative, and engaging.`;
+The response should be clear, informative, and engaging. If restaurant options are available, include specific menu items from those restaurants that match the user's preferences.`;
 
 export const recommendMealAction: Action = {
     name: "RECOMMEND_MEAL",
@@ -38,7 +46,6 @@ export const recommendMealAction: Action = {
     validate: async (runtime: IAgentRuntime, message: Memory) => {
         elizaLogger.debug("[RECOMMEND_MEAL] Validating action for message:", message.content);
         try {
-            // Get user preferences from memories with more detailed logging
             elizaLogger.debug("[RECOMMEND_MEAL] Attempting to fetch preferences");
             const userPrefs = await runtime.databaseAdapter.getMemories({
                 roomId: message.roomId,
@@ -49,7 +56,6 @@ export const recommendMealAction: Action = {
             
             elizaLogger.debug("[RECOMMEND_MEAL] Raw user preferences result:", userPrefs);
     
-            // Modified check: look for preferences in the content structure
             const hasPreferences = userPrefs && 
                                  userPrefs.length > 0 && 
                                  userPrefs[0].content &&
@@ -58,10 +64,10 @@ export const recommendMealAction: Action = {
     
             elizaLogger.debug("[RECOMMEND_MEAL] Has preferences:", hasPreferences);
             
-            return true;  // Always return true to allow the handler to manage the flow
+            return true;
         } catch (error) {
             elizaLogger.error("[RECOMMEND_MEAL] Validation error:", error);
-            return true;  // Still return true to allow handler to manage
+            return true;
         }
     },
     description: "Recommend meals based on user's fitness goals, dietary preferences, and restrictions. Use when user asks for food suggestions or meal planning advice.",
@@ -79,16 +85,13 @@ export const recommendMealAction: Action = {
         }
 
         try {
-            // Initialize state if undefined
             if (!state) {
                 elizaLogger.debug("[RECOMMEND_MEAL] Initializing state");
                 state = await runtime.composeState(message);
             }
 
-            // Add a small delay to ensure preferences are stored
-        await new Promise(resolve => setTimeout(resolve, 1000))
+            await new Promise(resolve => setTimeout(resolve, 1000));
 
-            // Get user preferences from memories
             elizaLogger.debug("[RECOMMEND_MEAL] Fetching user preferences");
             const userPrefs = await runtime.databaseAdapter.getMemories({
                 roomId: message.roomId,
@@ -99,23 +102,46 @@ export const recommendMealAction: Action = {
             
             elizaLogger.debug("[RECOMMEND_MEAL] User preferences found:", userPrefs);
             
-            // Modified preference check and handling
             if (!userPrefs || userPrefs.length === 0) {
-                return null;  // Return null instead of sending the preferences message
+                return null;
             }
             
-            // Extract preferences from the stored content
             const preferences = userPrefs[0].content.preferences || 
                                JSON.parse(userPrefs[0].content.text || '{}');
             
-            // Update state with user preferences
             state = {
                 ...state,
                 userPreferences: preferences
             };
+
+            // Get restaurants using UberEats service if available
+            let restaurantRecommendations = [];
+            if (global.uberEatsService) {
+                try {
+                    // For now, using default location - this should be updated with actual user location
+                    const location = {
+                        lat: 37.7749, // San Francisco coordinates as default
+                        lng: -122.4194
+                    };
+                    
+                    const restaurants = await global.uberEatsService.searchRestaurants(
+                        location,
+                        preferences
+                    );
+                    
+                    restaurantRecommendations = restaurants;
+                    
+                    state = {
+                        ...state,
+                        restaurants: restaurantRecommendations
+                    };
+                } catch (error) {
+                    elizaLogger.error("[RECOMMEND_MEAL] Error fetching restaurants:", error);
+                }
+            }
+
             elizaLogger.debug("[RECOMMEND_MEAL] Updated state:", state);
 
-            // Generate recommendation using the template
             elizaLogger.debug("[RECOMMEND_MEAL] Composing context");
             const context = composeContext({
                 state,
@@ -131,16 +157,19 @@ export const recommendMealAction: Action = {
             });
             elizaLogger.debug("[RECOMMEND_MEAL] Response generated:", response);
 
-            // Log the recommendation
             elizaLogger.debug("[RECOMMEND_MEAL] Logging to database");
             await runtime.databaseAdapter.log({
-                body: { message, context, response },
+                body: { 
+                    message, 
+                    context, 
+                    response,
+                    restaurants: restaurantRecommendations 
+                },
                 userId: message.userId,
                 roomId: message.roomId,
                 type: "meal_recommendation"
             });
 
-            // Create the response content
             const responseContent: Content = {
                 text: response.text,
                 action: "RECOMMEND_MEAL",

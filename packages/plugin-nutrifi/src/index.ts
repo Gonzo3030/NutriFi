@@ -3,6 +3,7 @@ import { elizaLogger } from "@elizaos/core";
 import { recommendMealAction } from "./actions/recommend-meal";
 import { nutritionGoalsEvaluator } from "./evaluators/nutritionGoalsEvaluator";
 import { initializeMongoDB } from "./db/configuration";
+import { UberEatsService } from './services/uber-eats';
 
 // Initial banner
 console.log("\n┌════════════════════════════════════════┐");
@@ -11,6 +12,22 @@ console.log("├─────────────────────�
 console.log("│  Initializing NutriFi Plugin...        │");
 console.log("│  Version: 0.1.0                        │");
 console.log("└════════════════════════════════════════┘");
+
+// Initialize services
+const initializeServices = () => {
+    const uberEatsConfig = {
+        clientId: process.env.UBER_EATS_CLIENT_ID,
+        clientSecret: process.env.UBER_EATS_CLIENT_SECRET,
+        sandbox: process.env.NODE_ENV !== 'production'
+    };
+
+    if (!uberEatsConfig.clientId || !uberEatsConfig.clientSecret) {
+        elizaLogger.warn("⚠️ UberEats credentials not set - Delivery features will be limited");
+        return null;
+    }
+
+    return new UberEatsService(uberEatsConfig);
+};
 
 // Initialize MongoDB before actions
 const initializeDatabase = async () => {
@@ -33,14 +50,19 @@ const initializeActions = async () => {
         await initializeDatabase();
 
         const nutrifiEnabled = process.env.NUTRIFI_ENABLED;
+        const uberEatsService = initializeServices();
 
         if (!nutrifiEnabled) {
             elizaLogger.warn("⚠️ NUTRIFI_ENABLED not set - NutriFi actions will not be available");
             return [];
         }
 
-        // Return the actions array
+        // Create the actions array
         const actions = [recommendMealAction];
+
+        // Store the UberEats service instance globally for actions to access
+        global.uberEatsService = uberEatsService;
+
         elizaLogger.success("✔ NutriFi actions initialized successfully.");
         return actions;
     } catch (error) {
@@ -57,6 +79,8 @@ export const nutrifiPlugin: Plugin = {
     providers: []
 };
 
-export * as actions from "./actions";
-export * as evaluators from "./evaluators";
+// Export everything
+export * from "./actions";
+export * from "./evaluators";
+export * from "./services/uber-eats";
 export default nutrifiPlugin;

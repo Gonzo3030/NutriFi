@@ -1,6 +1,6 @@
 {
     "name": "Eucratos",
-    "clients": ["twitter"],
+    "clients": ["twitter", "telegram"],
     "plugins": ["@elizaos/plugin-agentkit", "@elizaos/plugin-nutrifi"],
     "modelProvider": "anthropic",
     "actions": [],

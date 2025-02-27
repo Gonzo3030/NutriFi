@@ -6,6 +6,40 @@ import {
     type UUID
 } from "@elizaos/core";
 
+export interface MenuItem {
+    id: string;
+    name: string;
+    description?: string;
+    price: number;
+    nutritionInfo?: {
+        calories: number;
+        protein?: number;
+        carbs?: number;
+        fats?: number;
+        allergens?: string[];
+    };
+    dietaryTags?: string[];
+}
+
+export interface RestaurantData {
+    id: UUID;
+    uberId: string;
+    name: string;
+    location: {
+        type: "Point";
+        coordinates: [number, number];
+        address: string;
+    };
+    menu: MenuItem[];
+    nutritionInfo: {
+        hasHealthyOptions: boolean;
+        averageCaloriesPerMeal: number;
+        dietaryOptions: string[];
+    };
+    lastUpdated: Date;
+    cacheExpiry: Date;
+}
+
 export const COLLECTIONS = {
     USER_PREFERENCES: 'user_preferences',
     MEAL_HISTORY: 'meal_history',
@@ -55,6 +89,59 @@ export class NutriFiDatabase {
             throw error;
         }
     }
+
+    // Add these methods to your NutriFiDatabase class in packages/plugin-nutrifi/src/db/index.ts
+
+    static async getRestaurantsByLocation(lat: number, lng: number, radiusInMeters: number = 5000): Promise<RestaurantData[]> {
+        const db = this.getDb();
+        const results = await db.collection(COLLECTIONS.RESTAURANT_DATA)
+            .find({
+                location: {
+                    $near: {
+                        $geometry: {
+                            type: "Point",
+                            coordinates: [lng, lat]
+                        },
+                        $maxDistance: radiusInMeters
+                    }
+                },
+                cacheExpiry: { $gt: new Date() }
+            })
+            .toArray();
+        
+        return results as unknown as RestaurantData[];
+    }
+
+static async cacheRestaurant(restaurantData: RestaurantData) {
+    const db = this.getDb();
+    await db.collection(COLLECTIONS.RESTAURANT_DATA).updateOne(
+        { uberId: restaurantData.uberId },
+        { 
+            $set: {
+                ...restaurantData,
+                lastUpdated: new Date()
+            }
+        },
+        { upsert: true }
+    );
+}
+
+static async getRestaurantByUberId(uberId: string) {
+    const db = this.getDb();
+    return await db.collection(COLLECTIONS.RESTAURANT_DATA)
+        .findOne({ 
+            uberId,
+            cacheExpiry: { $gt: new Date() }
+        });
+}
+
+static async clearExpiredCache() {
+    const db = this.getDb();
+    await db.collection(COLLECTIONS.RESTAURANT_DATA)
+        .deleteMany({
+            cacheExpiry: { $lte: new Date() }
+        });
+}
 
     private static async initializeCollections(): Promise<void> {
         const db = this.client.db(this.dbName);
